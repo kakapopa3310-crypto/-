@@ -1,0 +1,47 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emory[Cc]aptures/
+[Ee]xported[Oo]bj/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+sysinfo.txt
+*.apk
+*.aab
+*.app
+*.unitypackage
+
+# IDE / tools
+.vs/
+.vscode/
+.idea/
+.gradle/
+*.tmp
+*.private
+*.private.meta
+
+# Plastic / Unity VCS
+.plastic/
+ignore.conf
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
