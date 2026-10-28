@@ -23,16 +23,31 @@ namespace PaperHouse
             Reset();
         }
 
-        /// <summary>Сколько бумаги складывается за одно действие: 1 сила = 25%.</summary>
-        public static float FoldAmount
+        /// <summary>
+        /// Качество складки 0..1 — влияет только на визуал сгиба.
+        /// На цену бумаги сила не влияет.
+        /// </summary>
+        public static float FoldQuality
         {
             get { return Mathf.Clamp01(StrengthLevel * 0.25f); }
         }
 
-        /// <summary>Каждая единица силы добавляет 0.25 м к высоте прыжка.</summary>
+        /// <summary>Высота прыжка постоянная: сила её больше не прокачивает.</summary>
         public static float JumpHeight
         {
-            get { return 0.75f + StrengthLevel * 0.25f; }
+            get { return 1f; }
+        }
+
+        /// <summary>Дальность броска: короткая, растёт от силы понемногу.</summary>
+        public static float ThrowDistance
+        {
+            get { return 2.2f + (StrengthLevel - 1) * 0.9f; }
+        }
+
+        /// <summary>Высота дуги броска — тоже посильнее с ростом силы.</summary>
+        public static float ThrowArc
+        {
+            get { return 0.25f + (StrengthLevel - 1) * 0.12f; }
         }
 
         public static float SpeedMultiplier
@@ -40,14 +55,10 @@ namespace PaperHouse
             get { return 1f + (SpeedLevel - 1) * 0.10f; }
         }
 
+        /// <summary>Цена листа: только эффективность, сила не участвует.</summary>
         public static int PaperValue
         {
-            get
-            {
-                int foldBonus = Mathf.RoundToInt(FoldAmount * 15f);
-                int efficiencyBonus = (EfficiencyLevel - 1) * 2;
-                return 5 + foldBonus + efficiencyBonus;
-            }
+            get { return 5 + (EfficiencyLevel - 1) * 2; }
         }
 
         public static int GetLevel(SkillType skill)

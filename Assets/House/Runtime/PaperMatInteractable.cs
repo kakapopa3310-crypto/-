@@ -1,107 +1,146 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 namespace PaperHouse
 {
-    /// <summary>Коврик на столе. Принимает ровно один лист за нажатие.</summary>
+    /// <summary>
+    /// Коврик на столе. Работает в три шага:
+    ///   1. E с листом в руках — лист ложится ровно на коврик;
+    ///   2. E по коврику — лист складывается пополам (анимация);
+    ///   3. E ещё раз — сложенный пополам лист складывается ещё раз, вчетверо.
+    /// После этого E забирает готовый лист в руки: продать можно только из рук.
+    /// </summary>
     public class PaperMatInteractable : InteractableBase
     {
         public Transform sheetParent;
         public Material paperMaterial;
 
+        [Header("Размер листа")]
+        public float sheetWidth = 0.42f;
+        public float sheetLength = 0.58f;
+
         [Header("Звук")]
         public AudioSource audioSource;
         public AudioClip placeClip;
+        public AudioClip foldClip;
 
-        private readonly List<GameObject> placedSheets = new List<GameObject>();
+        private FoldablePaper sheet;
 
-        public int PlacedCount { get; private set; }
-        public int PlacedValue { get; private set; }
+        public int PlacedCount { get { return sheet != null ? 1 : 0; } }
+        public int Folds { get { return sheet != null ? sheet.Folds : 0; } }
 
         public override string GetPrompt(PlayerInteractor player)
         {
-            if (PlacedCount >= 1)
-                return "На коврике уже лежит 1 лист — сдайте его в мусорку";
-
-            if (player.HasPaper)
+            if (sheet == null)
             {
-                return "E — положить 1 лист · складка " +
-                       Mathf.RoundToInt(PlayerStats.FoldAmount * 100f) + "%";
+                if (player != null && player.HasPaper)
+                    return "E — положить лист на коврик";
+
+                return "Возьмите 1 лист со стопки слева";
             }
 
-            return "Возьмите 1 лист со стопки слева";
+            if (sheet.IsAnimating)
+                return "Складываем…";
+
+            switch (sheet.Folds)
+            {
+                case 0:
+                    return "E — сложить лист пополам";
+                case 1:
+                    return "E — сложить ещё раз пополам (вчетверо)";
+                default:
+                    return "E — взять сложенный лист · стоит $" +
+                           (PlayerStats.PaperValue + sheet.Folds * 3);
+            }
         }
 
         public override void Interact(PlayerInteractor player)
         {
-            if (PlacedCount >= 1 || !player.HasPaper) return;
+            if (sheet == null)
+            {
+                if (player == null || !player.HasPaper) return;
+                PlaceSheet(player);
+                return;
+            }
 
-            player.ConsumePaper();
-            PlacedCount = 1;
-            PlacedValue = PlayerStats.PaperValue;
+            if (sheet.IsAnimating) return;
 
-            if (audioSource != null && placeClip != null)
-                AudioService.PlaySfx(audioSource, placeClip, 0.8f);
+            if (sheet.Folds < sheet.MaxFolds)
+            {
+                sheet.FoldNext(CrookForStrength());
+                AudioClip clip = foldClip != null ? foldClip : placeClip;
+                PlayClip(clip, 0.7f);
+            }
+            else
+            {
+                // Готовый лист забираем в руки — сдавать его можно только из рук.
+                if (player == null || player.HasPaper) return;
 
-            if (sheetParent != null)
-                AddFoldedSheetVisual();
+                int folds = sheet.Folds;
+                Destroy(sheet.gameObject);
+                sheet = null;
 
-            player.RefreshHud();
+                player.TakePaper(folds);
+                PlayClip(placeClip, 0.6f);
+            }
+
+            if (player != null) player.RefreshHud();
         }
 
         public void ClearPlaced()
         {
-            foreach (GameObject sheet in placedSheets)
-            {
-                if (sheet != null)
-                    DestroyImmediate(sheet);
-            }
+            if (sheet == null) return;
 
-            placedSheets.Clear();
-            PlacedCount = 0;
-            PlacedValue = 0;
+            Destroy(sheet.gameObject);
+            sheet = null;
+        }
+
+        // ------------------------------------------------------------------ детали
+
+        private void PlaceSheet(PlayerInteractor player)
+        {
+            // Лист помнит, сколько раз его сложили: вернули на коврик — он
+            // остаётся сложенным, а не «расправляется».
+            int folds = player.CarriedFolds;
+            player.ConsumePaper();
+
+            var sheetObject = new GameObject("Sheet");
+            if (sheetParent != null)
+                sheetObject.transform.SetParent(sheetParent, false);
+
+            sheetObject.transform.localPosition = Vector3.zero;
+            sheetObject.transform.localRotation = Quaternion.identity;
+
+            sheet = sheetObject.AddComponent<FoldablePaper>();
+            sheet.material = paperMaterial;
+            sheet.width = sheetWidth;
+            sheet.length = sheetLength;
+            sheet.Build();
+
+            if (folds > 0)
+                sheet.FoldInstant(folds);
+
+            PlayClip(placeClip, 0.8f);
+            player.RefreshHud();
         }
 
         /// <summary>
-        /// Складка зависит от силы: 1 — половина криво, 2 — ровнее,
-        /// 3 — идеально, 4 — второй раз пополам с лёгкой кривизной.
+        /// Чем больше силы, тем ровнее сгиб: 1 — криво, 2 — заметно, 3+ — почти идеально.
         /// </summary>
-        private void AddFoldedSheetVisual()
+        private static float CrookForStrength()
         {
-            int strength = PlayerStats.StrengthLevel;
-            bool doubleFold = strength >= 4;
-            int layers = doubleFold ? 4 : 2;
-            float firstCrook = strength == 1 ? 11f : strength == 2 ? 4f : 0f;
-            float secondCrook = doubleFold ? 7f : 0f;
-            float width = doubleFold ? 0.21f : 0.42f;
-
-            var root = new GameObject("Folded Sheet");
-            root.transform.SetParent(sheetParent, false);
-            root.transform.localPosition = new Vector3(0f, 0.012f, 0f);
-            root.transform.localRotation = Quaternion.identity;
-
-            for (int i = 0; i < layers; i++)
+            switch (PlayerStats.StrengthLevel)
             {
-                var panel = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                panel.name = "Fold " + (i + 1);
-                Collider panelCollider = panel.GetComponent<Collider>();
-                if (panelCollider != null)
-                    Destroy(panelCollider);
-
-                panel.transform.SetParent(root.transform, false);
-                panel.transform.localPosition = new Vector3(0f, i * 0.003f, 0f);
-                panel.transform.localScale = new Vector3(width, 0.0025f, 0.29f);
-
-                float angle = i == 1 ? firstCrook : 0f;
-                if (doubleFold && i >= 2) angle += secondCrook;
-                panel.transform.localRotation = Quaternion.Euler(0f, angle, 0f);
-
-                var renderer = panel.GetComponent<MeshRenderer>();
-                if (paperMaterial != null)
-                    renderer.sharedMaterial = paperMaterial;
+                case 1: return 12f;
+                case 2: return 6f;
+                case 3: return 2f;
+                default: return 0f;
             }
+        }
 
-            placedSheets.Add(root);
+        private void PlayClip(AudioClip clip, float volume)
+        {
+            if (audioSource != null && clip != null)
+                AudioService.PlaySfx(audioSource, clip, volume);
         }
     }
 }

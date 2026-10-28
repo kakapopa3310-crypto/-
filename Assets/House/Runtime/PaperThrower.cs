@@ -5,20 +5,20 @@ using UnityEngine.InputSystem;
 
 namespace PaperHouse
 {
-    /// <summary>Q — запустить сложенный лист к луне. Персонаж до неё не допрыгнет.</summary>
+    /// <summary>
+    /// Q — бросить бумажный самолётик вперёд.
+    /// Бросок короткий, дальность и дуга растут от силы.
+    /// </summary>
     public class PaperThrower : MonoBehaviour
     {
-        public Transform moon;
         public PlayerInteractor interactor;
         public PaperHUD hud;
         public Material paperMaterial;
         public FirstPersonController controller;
-        public float duration = 4.5f;
 
         private void Update()
         {
             if (interactor == null || !interactor.HasPaper) return;
-            if (moon == null) return;
 
             if (controller != null &&
                 ((controller.settingsMenu != null && controller.settingsMenu.IsOpen) ||
@@ -38,17 +38,34 @@ namespace PaperHouse
 #endif
         }
 
-        private void Throw()
+        /// <summary>Публичный бросок — им же пользуются тесты из редактора.</summary>
+        public void Throw()
         {
-            interactor.ConsumePaper();
+            if (interactor == null || !interactor.HasPaper) return;
 
-            Vector3 start = interactor.view != null
-                ? interactor.view.position + interactor.view.forward * 0.6f
-                : transform.position + Vector3.up * 1.6f;
+            Transform view = interactor.view != null ? interactor.view : transform;
+
+            Vector3 start = view.position + view.forward * 0.55f;
+            Vector3 flat = new Vector3(view.forward.x, 0f, view.forward.z);
+            if (flat.sqrMagnitude < 0.01f)
+                flat = transform.forward;
+            flat.Normalize();
+
+            float distance = PlayerStats.ThrowDistance;
+
+            // Не даём самолётику пролететь сквозь стену или дверь.
+            if (Physics.Raycast(start, flat, out RaycastHit hit, distance + 0.3f,
+                    Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
+                distance = Mathf.Clamp(hit.distance - 0.25f, 0.4f, distance);
+
+            Vector3 end = start + flat * distance;
+            end.y = 0.07f;
+
+            interactor.ConsumePaper();
 
             var plane = new GameObject("Paper Airplane");
             plane.transform.position = start;
-            plane.transform.rotation = Quaternion.LookRotation(moon.position - start);
+            plane.transform.rotation = Quaternion.LookRotation(flat);
 
             AddPanel(plane.transform, "Body", Vector3.zero, new Vector3(0.18f, 0.008f, 0.34f),
                 Quaternion.identity);
@@ -58,11 +75,11 @@ namespace PaperHouse
                 new Vector3(0.34f, 0.006f, 0.16f), Quaternion.Euler(0f, -24f, -8f));
 
             var projectile = plane.AddComponent<PaperProjectile>();
-            projectile.end = moon.position;
-            projectile.duration = duration;
-            projectile.arcHeight = 9f;
+            projectile.end = end;
+            projectile.duration = 0.45f + distance * 0.12f;
+            projectile.arcHeight = PlayerStats.ThrowArc;
             projectile.hud = hud;
-            projectile.message = "Сложенный лист долетел до луны!";
+            projectile.message = "Бумажный самолётик улетел на " + distance.ToString("0.0") + " м";
         }
 
         private void AddPanel(Transform parent, string name, Vector3 position, Vector3 scale,

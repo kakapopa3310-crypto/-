@@ -45,3 +45,8 @@ ignore.conf
 .DS_Store
 Thumbs.db
 Desktop.ini
+# Unity recovery / maya caches
+_Recovery/
+_Recovery.meta
+*.tx
+.mayaSwatches/

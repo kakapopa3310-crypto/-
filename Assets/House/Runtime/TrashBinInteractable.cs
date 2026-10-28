@@ -2,35 +2,39 @@ using UnityEngine;
 
 namespace PaperHouse
 {
-    /// <summary>Мусорка за домом: сдаёт всю бумагу с коврика за деньги.</summary>
+    /// <summary>
+    /// Зелёный бак за домом. Принимает бумагу только из рук игрока:
+    /// что держишь — то и сдаёшь. С коврика и со стола не продаёт.
+    /// </summary>
     public class TrashBinInteractable : InteractableBase
     {
-        public PaperMatInteractable mat;
         public AudioSource audioSource;
         public AudioClip sellClip;
 
         public override string GetPrompt(PlayerInteractor player)
         {
-            if (mat == null) return "Мусорка";
+            if (player != null && player.HasPaper)
+                return "E — сдать лист за $" + player.CarriedValue;
 
-            if (mat.PlacedCount == 0)
-                return "Мусорка пуста — принесите сложенную бумагу";
-
-            return "E — сдать " + mat.PlacedCount + " лист(ов) за $" + mat.PlacedValue;
+            return "Бак для бумаги — сложите лист и возьмите его в руки";
         }
 
         public override void Interact(PlayerInteractor player)
         {
-            if (mat == null || mat.PlacedCount == 0) return;
+            if (player == null || !player.HasPaper) return;
 
-            int value = mat.PlacedValue;
+            int value = player.CarriedValue;
             PlayerStats.Money += value;
-            mat.ClearPlaced();
+
+            player.ConsumePaper();
 
             if (audioSource != null && sellClip != null)
                 AudioService.PlaySfx(audioSource, sellClip, 0.9f);
 
-            if (player != null) player.RefreshHud();
+            if (player.hud != null)
+                player.hud.ShowToast("Сдано за $" + value, 2.5f);
+
+            player.RefreshHud();
         }
     }
 }

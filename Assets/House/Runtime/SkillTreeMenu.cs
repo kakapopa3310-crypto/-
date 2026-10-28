@@ -81,12 +81,12 @@ namespace PaperHouse
             GUI.Box(panel, "НОУТБУК · ДРЕВО ПРОКАЧКИ", titleStyle);
 
             GUI.Label(new Rect(520f, 285f, 700f, 38f),
-                "Деньги: $" + PlayerStats.Money + "   ·   сила даёт складку и прыжок",
+                "Деньги: $" + PlayerStats.Money + "   ·   сила — ровнее складка и дальше бросок",
                 labelStyle);
 
             DrawSkillRow(SkillType.Strength, 360f, "СИЛА",
-                "складка " + Mathf.RoundToInt(PlayerStats.FoldAmount * 100f) + "%" +
-                " · прыжок " + PlayerStats.JumpHeight.ToString("0.00") + " м",
+                "складка " + Mathf.RoundToInt(PlayerStats.FoldQuality * 100f) + "%" +
+                " · бросок " + PlayerStats.ThrowDistance.ToString("0.0") + " м",
                 new Color(0.80f, 0.55f, 0.34f));
 
             DrawSkillRow(SkillType.Speed, 470f, "СКОРОСТЬ",
@@ -94,7 +94,7 @@ namespace PaperHouse
                 new Color(0.38f, 0.68f, 0.78f));
 
             DrawSkillRow(SkillType.Efficiency, 580f, "ЭФФЕКТИВНОСТЬ",
-                "бумага стоит $" + PlayerStats.PaperValue,
+                "бумага стоит $" + PlayerStats.PaperValue + " (+$3 за сгиб)",
                 new Color(0.52f, 0.72f, 0.42f));
 
             if (GUI.Button(new Rect(520f, 785f, 260f, 52f), "Закрыть ноутбук", buttonStyle))

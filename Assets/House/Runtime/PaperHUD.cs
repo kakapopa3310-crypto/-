@@ -63,18 +63,21 @@ namespace PaperHouse
             promptText.text = show ? text : string.Empty;
         }
 
-        public void SetCounters(bool hasPaper, int placed)
+        public void SetCounters(bool hasPaper, int folds, int onMat, int inPile)
         {
             if (counterText == null) return;
 
-            string inHand = hasPaper ? "1 лист в руках" : "руки пусты";
-            string onMat = placed == 1 ? "1 лист" : placed + " листов";
-            int fold = Mathf.RoundToInt(PlayerStats.FoldAmount * 100f);
+            string inHand;
+            if (!hasPaper) inHand = "руки пусты";
+            else if (folds <= 0) inHand = "лист в руках";
+            else if (folds == 1) inHand = "лист в руках (пополам)";
+            else inHand = "лист в руках (вчетверо)";
+
             counterText.text = "БУМАГА\n" +
-                               inHand + "  ·  на коврике: " + onMat + "\n" +
+                               inHand + "  ·  на коврике: " + onMat +
+                               "  ·  в стопке: " + inPile + "\n" +
                                "Деньги: $" + PlayerStats.Money +
-                               "  ·  сила: " + PlayerStats.StrengthLevel +
-                               " (" + fold + "%)";
+                               "  ·  сила: " + PlayerStats.StrengthLevel;
         }
 
         public void SetHint(string text)

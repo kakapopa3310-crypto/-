@@ -2,14 +2,14 @@ using UnityEngine;
 
 namespace PaperHouse
 {
-    /// <summary>Полёт бумажного самолётика к луне.</summary>
+    /// <summary>Короткий полёт бумажного самолётика: дуга и посадка в точку end.</summary>
     public class PaperProjectile : MonoBehaviour
     {
         public Vector3 end;
-        public float duration = 4.5f;
-        public float arcHeight = 9f;
+        public float duration = 1f;
+        public float arcHeight = 0.4f;
         public PaperHUD hud;
-        public string message = "Бумага долетела до луны!";
+        public string message = "Бумажный самолётик улетел";
 
         private Vector3 start;
         private float progress;
@@ -21,7 +21,7 @@ namespace PaperHouse
 
         private void Update()
         {
-            progress += Time.deltaTime / Mathf.Max(0.1f, duration);
+            progress += Time.deltaTime / Mathf.Max(0.05f, duration);
             float t = Mathf.Clamp01(progress);
 
             transform.position = Vector3.Lerp(start, end, t) +
@@ -32,7 +32,7 @@ namespace PaperHouse
             if (t >= 1f)
             {
                 if (hud != null)
-                    hud.ShowToast(message, 4f);
+                    hud.ShowToast(message, 3f);
                 Destroy(gameObject);
             }
         }

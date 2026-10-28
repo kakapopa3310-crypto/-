@@ -12,12 +12,22 @@ namespace PaperHouse
         public float reach = 3f;
         public GameObject heldPaperVisual;
         public PaperMatInteractable mat;
+        public PaperPileInteractable pile;
         public PaperHUD hud;
 
         private InteractableBase current;
         private FirstPersonController fpc;
 
         public bool HasPaper { get; private set; }
+
+        /// <summary>Сколько сгибов у листа в руках.</summary>
+        public int CarriedFolds { get; private set; }
+
+        /// <summary>Сколько дадут за лист в руках.</summary>
+        public int CarriedValue
+        {
+            get { return PlayerStats.PaperValue + CarriedFolds * 3; }
+        }
 
         private void Awake()
         {
@@ -30,14 +40,23 @@ namespace PaperHouse
 
             if (hud == null)
                 hud = GetComponent<PaperHUD>();
+
+            if (heldPaperVisual != null)
+            {
+                handBaseScale = heldPaperVisual.transform.localScale;
+                handBasePosition = heldPaperVisual.transform.localPosition;
+            }
         }
+
+        private Vector3 handBaseScale = Vector3.one;
+        private Vector3 handBasePosition;
 
         private void Start()
         {
             RefreshHud();
             if (hud != null)
                 hud.SetHint("WASD — идти · Мышь — смотреть · Shift — бежать · Space — прыжок\n" +
-                            "E — взаимодействовать · Q — запустить бумагу к луне · Esc — настройки");
+                            "E — взаимодействовать · Q — бросить бумагу · Esc — настройки");
         }
 
         private void Update()
@@ -91,28 +110,64 @@ namespace PaperHouse
 #endif
         }
 
-        public void TakePaper()
+        /// <summary>Взять лист в руки. folds — сколько у него сгибов (0 — плоский).</summary>
+        public void TakePaper(int folds = 0)
         {
             if (HasPaper) return;
+
             HasPaper = true;
+            CarriedFolds = Mathf.Clamp(folds, 0, 2);
+
             if (heldPaperVisual != null)
                 heldPaperVisual.SetActive(true);
+
+            ApplyHeldPaperShape();
             RefreshHud();
         }
 
         public void ConsumePaper()
         {
             HasPaper = false;
+            CarriedFolds = 0;
+
             if (heldPaperVisual != null)
                 heldPaperVisual.SetActive(false);
+
+            ApplyHeldPaperShape();
             RefreshHud();
+        }
+
+        /// <summary>
+        /// Лист в руках выглядит сложенным так же, как в мире:
+        /// 0 — целый, 1 — пополам, 2 — вчетверо.
+        /// </summary>
+        private void ApplyHeldPaperShape()
+        {
+            if (heldPaperVisual == null) return;
+
+            float lengthScale = CarriedFolds >= 1 ? 0.5f : 1f;
+            float widthScale = CarriedFolds >= 2 ? 0.5f : 1f;
+
+            heldPaperVisual.transform.localScale = new Vector3(
+                handBaseScale.x * widthScale,
+                handBaseScale.y,
+                handBaseScale.z * lengthScale);
+
+            // Сдвигаем к руке, чтобы сложенный лист не «уезжал» из кадра.
+            heldPaperVisual.transform.localPosition = handBasePosition + new Vector3(
+                handBaseScale.x * 0.5f * (1f - widthScale),
+                0f,
+                handBaseScale.z * 0.5f * (1f - lengthScale));
         }
 
         public void RefreshHud()
         {
             if (hud == null) return;
 
-            hud.SetCounters(HasPaper, mat != null ? mat.PlacedCount : 0);
+            hud.SetCounters(HasPaper, CarriedFolds,
+                mat != null ? mat.PlacedCount : 0,
+                pile != null ? pile.Count : 0);
+
             if (current != null)
                 hud.SetPrompt(current.GetPrompt(this));
         }

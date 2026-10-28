@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DSH.Assistant;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -93,11 +94,9 @@ namespace PaperHouse.EditorTools
 
             var laptop = Object.FindAnyObjectByType<LaptopInteractable>();
             var chair = Object.FindAnyObjectByType<ChairInteractable>();
-            var trash = Object.FindAnyObjectByType<TrashBinInteractable>();
-            if (trash != null)
-                trash.mat = mat;
+            var pile = Object.FindAnyObjectByType<PaperPileInteractable>();
 
-            GameObject player = BuildPlayer(camera, mat, laptop, chair);
+            GameObject player = BuildPlayer(camera, mat, pile, laptop, chair);
             var audioService = player.GetComponent<AudioService>();
             if (audioService != null)
                 audioService.ambientSource = house.GetComponent<AudioSource>();
@@ -344,6 +343,7 @@ namespace PaperHouse.EditorTools
 
             PaperMatInteractable mat = BuildInterior(root);
             BuildExterior(root);
+            BuildFence(root);
             BuildMiniTown(root);
             BuildGreenery(root);
             BuildNightSky(root);
@@ -629,8 +629,163 @@ namespace PaperHouse.EditorTools
 
             BuildLaptop(table.transform);
             BuildChair(root);
+            BuildPaperTable(root);
 
             return mat;
+        }
+
+        /// <summary>
+        /// Забор по периметру двора: секции из Wood_Fence/fbxFence.fbx ставятся
+        /// вплотную и ровно, сливаются в один меш, а по линиям идут невидимые
+        /// коллайдеры. Спереди оставлен проём-калитка по центру дорожки.
+        /// </summary>
+        public static void BuildFence(Transform root)
+        {
+            const string modelPath = "Assets/Wood_Fence/fbxFence.fbx";
+            const string meshPath = MeshesFolder + "/Fence.asset";
+
+            Mesh source = null;
+            Material fenceMaterial = null;
+            foreach (Object asset in AssetDatabase.LoadAllAssetsAtPath(modelPath))
+            {
+                if (source == null && asset is Mesh) source = asset as Mesh;
+                if (fenceMaterial == null && asset is Material) fenceMaterial = asset as Material;
+            }
+
+            if (source == null)
+            {
+                Debug.LogWarning("[PaperHouse] Не найден меш забора: " + modelPath);
+                return;
+            }
+
+            // Материал из FBX на ночной сцене уходит в чёрный — берём свой, посветлее и двусторонний.
+            fenceMaterial = GetOrCreateFenceMaterial();
+
+            const float halfWidth = 13f;
+            const float halfDepth = 10f;
+            const float panelWidth = 3.94f;
+            const float panelHeight = 1.2f;
+            const float panelThickness = 0.012f;
+            const float gateWidth = 2.4f;
+
+            Vector3 baseScale = new Vector3(
+                panelWidth / Mathf.Max(0.0001f, source.bounds.size.x),
+                panelHeight / Mathf.Max(0.0001f, source.bounds.size.y),
+                panelThickness / Mathf.Max(0.0001f, source.bounds.size.z));
+
+            var combines = new List<CombineInstance>();
+
+            float frontRun = halfWidth - gateWidth * 0.5f;
+
+            AddFenceRun(combines, source, baseScale, panelWidth, panelHeight,
+                new Vector3(-halfWidth, 0f, -halfDepth), Vector3.right, frontRun);
+            AddFenceRun(combines, source, baseScale, panelWidth, panelHeight,
+                new Vector3(gateWidth * 0.5f, 0f, -halfDepth), Vector3.right, frontRun);
+            AddFenceRun(combines, source, baseScale, panelWidth, panelHeight,
+                new Vector3(-halfWidth, 0f, halfDepth), Vector3.right, halfWidth * 2f);
+            AddFenceRun(combines, source, baseScale, panelWidth, panelHeight,
+                new Vector3(-halfWidth, 0f, -halfDepth), Vector3.forward, halfDepth * 2f);
+            AddFenceRun(combines, source, baseScale, panelWidth, panelHeight,
+                new Vector3(halfWidth, 0f, -halfDepth), Vector3.forward, halfDepth * 2f);
+
+            var merged = new Mesh();
+            merged.name = "Fence";
+            merged.CombineMeshes(combines.ToArray(), true, true);
+            merged.RecalculateBounds();
+
+            // Нормали пересчитываем заново: у модели из Maya они вывернуты,
+            // из-за чего ночью забор получался чёрным.
+            merged.RecalculateNormals();
+
+            if (!AssetDatabase.IsValidFolder(MeshesFolder))
+                AssetDatabase.CreateFolder(HouseFolder, "Meshes");
+
+            AssetDatabase.DeleteAsset(meshPath);
+            AssetDatabase.CreateAsset(merged, meshPath);
+
+            var fence = new GameObject("Fence");
+            fence.transform.SetParent(root, false);
+            fence.AddComponent<MeshFilter>().sharedMesh = merged;
+
+            var fenceRenderer = fence.AddComponent<MeshRenderer>();
+            if (fenceMaterial != null) fenceRenderer.sharedMaterial = fenceMaterial;
+            // Тонкие доски в ночной сцене сами себя затеняют — забору тени не нужны.
+            fenceRenderer.shadowCastingMode = ShadowCastingMode.Off;
+            fenceRenderer.receiveShadows = false;
+
+            // Невидимые стены по периметру: сквозь забор игрок не пройдёт.
+            AddFenceWall(fence.transform, "Collider Front Left",
+                new Vector3(-(halfWidth + gateWidth * 0.5f) * 0.5f, panelHeight * 0.5f, -halfDepth),
+                new Vector3(halfWidth - gateWidth * 0.5f, panelHeight, 0.25f));
+            AddFenceWall(fence.transform, "Collider Front Right",
+                new Vector3((halfWidth + gateWidth * 0.5f) * 0.5f, panelHeight * 0.5f, -halfDepth),
+                new Vector3(halfWidth - gateWidth * 0.5f, panelHeight, 0.25f));
+            AddFenceWall(fence.transform, "Collider Back",
+                new Vector3(0f, panelHeight * 0.5f, halfDepth),
+                new Vector3(halfWidth * 2f, panelHeight, 0.25f));
+            AddFenceWall(fence.transform, "Collider Left",
+                new Vector3(-halfWidth, panelHeight * 0.5f, 0f),
+                new Vector3(0.25f, panelHeight, halfDepth * 2f));
+            AddFenceWall(fence.transform, "Collider Right",
+                new Vector3(halfWidth, panelHeight * 0.5f, 0f),
+                new Vector3(0.25f, panelHeight, halfDepth * 2f));
+        }
+
+        private static Material GetOrCreateFenceMaterial()
+        {
+            const string path = MaterialsFolder + "/Fence.mat";
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material != null) return material;
+
+            Material woodMaterial = AssetDatabase.LoadAssetAtPath<Material>(MaterialsFolder + "/Wood.mat");
+            material = woodMaterial != null ? new Material(woodMaterial) : new Material(Shader.Find("Universal Render Pipeline/Lit"));
+            material.name = "Fence";
+            material.color = new Color(0.62f, 0.47f, 0.33f);
+
+            // Двусторонняя отрисовка: модель из Maya местами с вывернутыми нормалями.
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+
+            // Ночью забор всё равно уходит в чёрный — чуть подсвечиваем сам материал.
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", new Color(0.10f, 0.075f, 0.05f));
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.None;
+
+            AssetDatabase.CreateAsset(material, path);
+            return material;
+        }
+
+        private static void AddFenceRun(List<CombineInstance> combines, Mesh source,
+            Vector3 baseScale, float panelWidth, float panelHeight,
+            Vector3 start, Vector3 direction, float length)
+        {
+            int count = Mathf.Max(1, Mathf.RoundToInt(length / panelWidth));
+            float spacing = length / count;
+            Quaternion rotation = Quaternion.FromToRotation(Vector3.right, direction);
+
+            var scale = new Vector3(spacing / Mathf.Max(0.0001f, source.bounds.size.x),
+                                    baseScale.y, baseScale.z);
+
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 center = start + direction * ((i + 0.5f) * spacing);
+                center.y = panelHeight * 0.5f;
+
+                Matrix4x4 matrix = Matrix4x4.TRS(center, rotation, scale) *
+                                   Matrix4x4.Translate(-source.bounds.center);
+
+                combines.Add(new CombineInstance { mesh = source, transform = matrix });
+            }
+        }
+
+        private static void AddFenceWall(Transform parent, string name, Vector3 center, Vector3 size)
+        {
+            var wall = new GameObject(name);
+            wall.transform.SetParent(parent, false);
+            wall.transform.localPosition = center;
+
+            var box = wall.AddComponent<BoxCollider>();
+            box.size = size;
+            box.center = Vector3.zero;
         }
 
         private static void BuildExterior(Transform root)
@@ -785,6 +940,50 @@ namespace PaperHouse.EditorTools
             Object.DestroyImmediate(leaves.GetComponent<Collider>());
         }
 
+        /// <summary>
+        /// Отдельный стол у правой стены: сюда складывают готовые листы,
+        /// каждый новый ложится сверху, стопка растёт в высоту.
+        /// </summary>
+        private static void BuildPaperTable(Transform root)
+        {
+            var table = new GameObject("Paper Table");
+            table.transform.SetParent(root, false);
+            table.transform.localPosition = new Vector3(2.45f, 0.25f, 0.5f);
+
+            Box(table.transform, "Table Top", new Vector3(0f, 0.63f, 0f),
+                new Vector3(0.95f, 0.06f, 0.70f), wood);
+            Box(table.transform, "Leg FL", new Vector3(-0.40f, 0.30f, -0.28f),
+                new Vector3(0.07f, 0.60f, 0.07f), darkWood);
+            Box(table.transform, "Leg FR", new Vector3(0.40f, 0.30f, -0.28f),
+                new Vector3(0.07f, 0.60f, 0.07f), darkWood);
+            Box(table.transform, "Leg BL", new Vector3(-0.40f, 0.30f, 0.28f),
+                new Vector3(0.07f, 0.60f, 0.07f), darkWood);
+            Box(table.transform, "Leg BR", new Vector3(0.40f, 0.30f, 0.28f),
+                new Vector3(0.07f, 0.60f, 0.07f), darkWood);
+
+            var pileAnchor = new GameObject("Pile");
+            pileAnchor.transform.SetParent(table.transform, false);
+            // Чуть выше столешницы: лист лежит на ней, а не висит в воздухе.
+            pileAnchor.transform.localPosition = new Vector3(0f, 0.6605f, 0f);
+
+            var collider = table.AddComponent<BoxCollider>();
+            collider.size = new Vector3(0.85f, 0.50f, 0.62f);
+            collider.center = new Vector3(0f, 0.78f, 0f);
+            collider.isTrigger = true;
+
+            var pile = table.AddComponent<PaperPileInteractable>();
+            pile.pileParent = pileAnchor.transform;
+            pile.paperMaterial = paperMat;
+            pile.sheetWidth = 0.42f;
+            pile.sheetLength = 0.58f;
+            pile.sheetThickness = 0.0002f; // 0.2 мм, каждый сгиб удваивает
+            AudioClip placeClip = LoadClip("paper_place");
+            AudioClip takeClip = LoadClip("paper_pick");
+            pile.audioSource = AddSpatialAudio(table, placeClip, 0.8f);
+            pile.placeClip = placeClip;
+            pile.takeClip = takeClip;
+        }
+
         private static void BuildLaptop(Transform table)
         {
             var laptop = new GameObject("Laptop");
@@ -907,6 +1106,7 @@ namespace PaperHouse.EditorTools
             GameObject moon = Sphere(sky.transform, "Moon", new Vector3(0f, 38f, 50f),
                 new Vector3(7.5f, 7.5f, 7.5f), moonMat);
             Object.DestroyImmediate(moon.GetComponent<Collider>());
+            AttachMoonLight(moon);
 
             for (int i = 0; i < 48; i++)
             {
@@ -920,6 +1120,35 @@ namespace PaperHouse.EditorTools
                     new Vector3(0.18f, 0.18f, 0.18f), starMat);
                 Object.DestroyImmediate(star.GetComponent<Collider>());
             }
+        }
+
+        /// <summary>
+        /// Лунный свет: направленный источник висит на модели луны и светит
+        /// под углом на газон перед домом, давая длинные тени.
+        /// </summary>
+        private static void AttachMoonLight(GameObject moon)
+        {
+            Transform existing = moon.transform.Find("Moon Light");
+            GameObject lightObject = existing != null ? existing.gameObject : new GameObject("Moon Light");
+
+            lightObject.transform.SetParent(moon.transform, false);
+            lightObject.transform.localPosition = Vector3.zero;
+            lightObject.transform.localRotation = Quaternion.identity;
+            lightObject.transform.localScale = Vector3.one;
+
+            var light = lightObject.GetComponent<Light>();
+            if (light == null) light = lightObject.AddComponent<Light>();
+
+            light.type = LightType.Directional;
+            light.color = new Color(0.62f, 0.72f, 1f);
+            light.intensity = 0.9f;
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = 0.9f;
+            light.shadowBias = 0.05f;
+
+            var target = new Vector3(-6f, 0f, -6f);
+            lightObject.transform.rotation =
+                Quaternion.LookRotation((target - moon.transform.position).normalized, Vector3.up);
         }
 
         private static void BuildStreetLamp(Transform parent, Vector3 position)
@@ -945,7 +1174,7 @@ namespace PaperHouse.EditorTools
         }
 
         private static GameObject BuildPlayer(Camera camera, PaperMatInteractable mat,
-            LaptopInteractable laptop, ChairInteractable chair)
+            PaperPileInteractable pile, LaptopInteractable laptop, ChairInteractable chair)
         {
             var player = new GameObject("Player");
             player.layer = 2; // Ignore Raycast: луч взаимодействия не бьёт в самого игрока.
@@ -1013,6 +1242,7 @@ namespace PaperHouse.EditorTools
             interactor.view = camera.transform;
             interactor.hud = hud;
             interactor.mat = mat;
+            interactor.pile = pile;
 
             GameObject hand = Box(camera.transform, "Held Paper",
                 new Vector3(0.34f, -0.28f, 0.55f), new Vector3(0.28f, 0.005f, 0.38f), paperMat);
@@ -1022,7 +1252,6 @@ namespace PaperHouse.EditorTools
             interactor.heldPaperVisual = hand;
 
             var thrower = player.AddComponent<PaperThrower>();
-            thrower.moon = GameObject.Find("Moon") != null ? GameObject.Find("Moon").transform : null;
             thrower.interactor = interactor;
             thrower.hud = hud;
             thrower.controller = fpc;
@@ -1048,17 +1277,23 @@ namespace PaperHouse.EditorTools
 
         private static void ConfigureLighting(Transform houseRoot)
         {
+            Transform moonTransform = null;
+            GameObject moonObject = GameObject.Find("Moon");
+            if (moonObject != null) moonTransform = moonObject.transform;
+
             foreach (Light light in Object.FindObjectsByType<Light>(FindObjectsSortMode.None))
             {
-                if (light.type == LightType.Directional)
-                {
-                    // Луна: холодный неяркий свет.
-                    light.intensity = 0.42f;
-                    light.color = new Color(0.52f, 0.62f, 0.92f);
-                    light.shadows = LightShadows.Soft;
-                    light.shadowStrength = 0.8f;
-                    light.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
-                }
+                if (light.type != LightType.Directional) continue;
+
+                // Свет на модели луны настраивается в AttachMoonLight.
+                if (moonTransform != null && light.transform.IsChildOf(moonTransform)) continue;
+
+                // Мягкая подсветка фасада: сама луна светит с другой стороны дома.
+                light.intensity = 0.22f;
+                light.color = new Color(0.52f, 0.62f, 0.92f);
+                light.shadows = LightShadows.Soft;
+                light.shadowStrength = 0.8f;
+                light.transform.rotation = Quaternion.Euler(42f, -28f, 0f);
             }
 
             BuildCeilingLamp(houseRoot);
